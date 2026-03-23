@@ -1,0 +1,22 @@
+services:
+  k8s-mcp:
+    build: .
+    image: k8s-mcp:latest
+    container_name: k8s-mcp
+    ports:
+      - "${K8S_MCP_PORT:-8000}:8000"
+    environment:
+      K8S_MCP_HOST: "0.0.0.0"
+      K8S_MCP_PORT: "8000"
+      K8S_MCP_AUTH_TOKEN: "${K8S_MCP_AUTH_TOKEN}"
+      KUBECONFIG: "/home/mcp/.kube/config"
+    volumes:
+      # Mount kubeconfig for local cluster access (set KUBECONFIG_PATH in .env)
+      - "${KUBECONFIG_PATH:-${HOME}/.kube/config}:/home/mcp/.kube/config:ro"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

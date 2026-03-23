@@ -1,0 +1,8 @@
+# k8s-mcp - Python dependencies
+# Install: pip install -r requirements.txt
+# Or for editable: pip install -e .
+
+mcp[cli]>=1.2.0
+kubernetes>=30.0.0
+PyYAML>=6.0
+uvicorn>=0.30.0
