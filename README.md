@@ -37,8 +37,10 @@ pip install -e .
 | `K8S_MCP_PORT` | `8000` | 监听端口 |
 | `K8S_MCP_AUTH_TOKEN` | 无 | 若设置，则要求 `Authorization: Bearer <token>` |
 | `K8S_MCP_LOG_LEVEL` | `INFO` | 日志级别：`DEBUG` / `INFO` / `WARNING` / `ERROR`，排查时用 `DEBUG` |
+| `K8S_MCP_KUBECTL_ALLOWED` | `get,describe,logs,...` | kubectl 白名单子命令（逗号分隔） |
+| `K8S_MCP_KUBECTL_TIMEOUT` | `120` | kubectl 超时秒数 |
 
-MCP 端点：`http://<host>:<port>/mcp`，健康检查：`http://<host>:<port>/health`
+MCP 端点：`http://<host>:<port>/mcp`，健康检查：`http://<host>:<port>/health`，Prometheus 指标：`http://<host>:<port>/metrics`
 
 ### Cursor 配置示例
 
@@ -86,13 +88,20 @@ MCP 端点：`http://<host>:<port>/mcp`，健康检查：`http://<host>:<port>/h
 
 ## Docker 部署
 
-```bash
-# 1. 复制环境变量模板
-cp .env.example .env
-# 编辑 .env，设置 K8S_MCP_AUTH_TOKEN（必填）和 KUBECONFIG_PATH（可选，默认 ~/.kube/config）
+Docker 相关文件在 `docker/` 目录：`Dockerfile`、`docker-compose.yml`、`.env.example`。
 
-# 2. 构建并启动
-docker compose up -d --build
+根目录的 `.dockerignore` 供 **构建上下文（仓库根）** 使用，Docker 会从这里读取，请勿删除。
+
+```bash
+# 1. 复制环境变量模板（与 compose 同目录，便于加载 .env）
+cp docker/.env.example docker/.env
+# 编辑 docker/.env，设置 K8S_MCP_AUTH_TOKEN（必填）和 KUBECONFIG_PATH（可选，默认 ~/.kube/config）
+
+# 2. 构建并启动（在仓库根目录执行）
+docker compose -f docker/docker-compose.yml up -d --build
+
+# 或在 docker 目录下：cp .env.example .env 后
+# docker compose up -d --build
 
 # 3. 验证
 curl http://localhost:8000/health
@@ -139,7 +148,7 @@ k8s-mcp 通过多个 MCP 工具，对 Kubernetes 集群内**任意资源**（含
 
 #### k8s_kubectl
 
-执行任意 kubectl 子命令，用于排查、查看日志、describe、top 等。
+执行 kubectl 子命令（白名单限制），用于排查、查看日志、describe、top 等。默认允许：`get`、`describe`、`logs`、`top`、`version`、`api-resources`、`cluster-info`、`explain`；可通过 `K8S_MCP_KUBECTL_ALLOWED` 覆盖。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -153,7 +162,7 @@ k8s-mcp 通过多个 MCP 工具，对 Kubernetes 集群内**任意资源**（含
 - `k8s_kubectl(args="logs nginx-xxx -n default --tail=100")`
 - `k8s_kubectl(args="describe pod nginx -n default")`
 - `k8s_kubectl(args="top nodes")`
-- `k8s_kubectl(args="exec nginx-xxx -n default -- ls")`（非交互式 exec，勿用 -it）
+（`exec`、`apply`、`delete` 等写操作不在默认白名单内）
 
 ---
 
@@ -314,6 +323,88 @@ k8s-mcp 通过多个 MCP 工具，对 Kubernetes 集群内**任意资源**（含
 | 创建 ConfigMap | `k8s_apply(manifest_yaml="...")` |
 | 扩容 Deployment 副本数 | `k8s_patch(..., patch='{"spec":{"replicas":3}}', patch_type="strategic")` |
 | 删除 Pod | `k8s_delete(api_version="v1", kind="Pod", name="xxx", namespace="default")` |
+
+## RBAC 配置建议
+
+生产环境中，k8s-mcp 以 Pod 或 DaemonSet 运行时，应为其 ServiceAccount 配置最小权限。以下为示例，可按需裁剪。
+
+### 单命名空间只读
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-mcp
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: k8s-mcp-reader
+  namespace: default
+rules:
+  - apiGroups: ["", "apps", "batch"]
+    resources: ["pods", "services", "deployments", "jobs", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: k8s-mcp-reader
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: k8s-mcp-reader
+subjects:
+  - kind: ServiceAccount
+    name: k8s-mcp
+    namespace: default
+```
+
+### 单命名空间读写（含 Pod/Service 创建）
+
+在 `Role` 的 `rules` 中增加：
+
+```yaml
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+```
+
+### 集群级只读（含 Node、APIGroup 等）
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8s-mcp-cluster-reader
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["", "apps", "batch"]
+    resources: ["pods", "services", "deployments", "jobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apiregistration.k8s.io"]
+    resources: ["apiservices"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8s-mcp-cluster-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8s-mcp-cluster-reader
+subjects:
+  - kind: ServiceAccount
+    name: k8s-mcp
+    namespace: default
+```
+
+部署时通过 `serviceAccountName: k8s-mcp` 挂载该 ServiceAccount。
 
 ## 说明
 

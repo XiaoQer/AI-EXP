@@ -8,8 +8,7 @@ build/
 .mypy_cache/
 .ruff_cache/
 .git/
-.gitignore
+.idea/
 *.md
 .env
 .env.*
-!.env.example

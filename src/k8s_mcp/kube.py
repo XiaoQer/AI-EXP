@@ -352,9 +352,33 @@ def create_pod_and_service(
     return {"pod": pod_result, "service": svc_result}
 
 
-def exec_kubectl(args_str: str, timeout: int = 120) -> dict[str, Any]:
-    """执行 kubectl 命令，返回 stdout、stderr、returncode。使用当前 KUBECONFIG。"""
-    args = ["kubectl"] + shlex.split(args_str)
+# 默认允许的 kubectl 子命令（读操作、排查类），可通过 K8S_MCP_KUBECTL_ALLOWED 覆盖
+KUBECTL_ALLOWED_DEFAULT = frozenset(
+    {"get", "describe", "logs", "top", "version", "api-resources", "cluster-info", "explain"}
+)
+
+
+def exec_kubectl(
+    args_str: str,
+    timeout: int = 120,
+    allowed_commands: frozenset[str] | None = None,
+) -> dict[str, Any]:
+    """执行 kubectl 命令。allowed_commands 为空则使用默认白名单；仅允许白名单内的子命令。"""
+    parts = shlex.split(args_str.strip())
+    if not parts:
+        return {"returncode": -1, "stdout": "", "stderr": "Empty kubectl args", "success": False}
+
+    subcmd = parts[0].lower()
+    allowed = allowed_commands or KUBECTL_ALLOWED_DEFAULT
+    if subcmd not in allowed:
+        return {
+            "returncode": -1,
+            "stdout": "",
+            "stderr": f"kubectl subcommand '{subcmd}' not allowed. Allowed: {sorted(allowed)}",
+            "success": False,
+        }
+
+    args = ["kubectl"] + parts
     logger.info("exec_kubectl: %s", " ".join(args))
     try:
         result = subprocess.run(
