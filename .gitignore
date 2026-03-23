@@ -1,3 +1,4 @@
+# Python
 .venv/
 __pycache__/
 *.py[cod]
@@ -7,6 +8,17 @@ build/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-*.log
+
+# Env & secrets (keep .env.example tracked)
 .env
 .env.*
+!.env.example
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# IDE
+.idea/

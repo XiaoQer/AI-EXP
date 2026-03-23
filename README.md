@@ -103,7 +103,7 @@ Docker 部署时**强烈建议**设置 `K8S_MCP_AUTH_TOKEN`，否则服务对局
 
 ## 功能概览
 
-k8s-mcp 通过 7 个 MCP 工具，对 Kubernetes 集群内**任意资源**（含 CRD）进行增删改查。所有操作基于 `apiVersion` + `kind`，与 `kubectl` 一致。
+k8s-mcp 通过多个 MCP 工具，对 Kubernetes 集群内**任意资源**（含 CRD）进行增删改查。所有操作基于 `apiVersion` + `kind`，与 `kubectl` 一致。
 
 ### 工具列表
 
